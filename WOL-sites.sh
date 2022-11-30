@@ -3,26 +3,23 @@
 # Bash script to loop through hostnames, and send WOL to them
 
 # Requires source CSV of the computers to wake:
-# hostname/url, ip address, MAC address
-# google.com, 1.2.3.4, 11:22:33:44:55:66
+#   Hostname/url, Broadcast ip address, MAC address
+# Example:
+#   google.com,   1.2.3.4,  11:22:33:44:55:66
+#
 
 SiteList=SiteList.csv
 
-#while read Site; do
-#	echo "$Site"
-#
-#	
-#done <${SiteList}
-
-
-
-
-while IFS=, read Hostname IP MAC
+while IFS=, read Hostname Broadcast MAC
 do 
-  echo "Do something with ${Hostname} ${IP} and ${MAC}"
+  echo "Do something with ${Hostname} ${Broadcast} and ${MAC}"
+  printf "\n${Hostname}"
+  ping -c 1 -W 1 ${Hostname} > /dev/null 2>&1 && { printf "   Online" ; continue ; }
   
-  ping -c 1 -W 1 ${Hostname} && { echo ${Hostname} ; continue ; }
-  
+  #MAC=
+  #Broadcast=
+  PortNumber=9
+  echo -e $(echo $(printf 'f%.0s' {1..12}; printf "$(echo $MAC | sed 's/://g')%.0s" {1..16}) | sed -e 's/../\\x&/g') | socat - UDP-DATAGRAM:${Broadcast}:${PortNumber},broadcast
   
   
 done < ${SiteList}
