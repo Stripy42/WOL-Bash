@@ -8,6 +8,8 @@
 #   google.com,   1.2.3.4,  11:22:33:44:55:66
 #
 
+# Curentlly uses socat, but will have option to alternativly use nc (aka netcat)
+
 
 SiteListDefault=SiteList.csv
 PortNumberDefault=9
@@ -76,8 +78,23 @@ testids="${@}"
 SiteList="${SiteListNew:-${SiteListDefault}}"
 PortNumber="${PortNumberNew:-${PortNumberDefault}}"
 
+# Check dependicy
+if [[ $(which socat) ]]; then BroadcastTool="Socat"
+elif  [[ $(which nc) ]]; then BroadcastTool="NC"
+elif  [[ $(which netcat) ]]; then BroadcastTool="Netcat"
+else
+	echo install socat, nc, or netcat from your prefered supplier of zeros and ones
+	exit 1
+fi
+
 CheckandWOL() {
+	if [[ {BroadcastTool} -eq "Socat" ]]; then
 		echo -e $(echo $(printf 'f%.0s' {1..12}; printf "$(echo $MAC | sed 's/://g')%.0s" {1..16}) | sed -e 's/../\\x&/g') | socat - UDP-DATAGRAM:${Broadcast}:${PortNumber},broadcast
+	elif  [[{BroadcastTool} -eq "NC" ]]; then
+		echo -e $(echo $(printf 'f%.0s' {1..12}; printf "$(echo $MAC | sed 's/://g')%.0s" {1..16}) | sed -e 's/../\\x&/g') | nc
+	elif  [[{BroadcastTool} -eq "Netcat" ]]; then
+		echo -e $(echo $(printf 'f%.0s' {1..12}; printf "$(echo $MAC | sed 's/://g')%.0s" {1..16}) | sed -e 's/../\\x&/g') | netcat
+	else
 }
 
 LoopWholeSiteList() {
@@ -97,7 +114,7 @@ WakeOneSite() {
 }
 
 
-if [[ -n ${Site}]]; then
+if [[ -n "${Site}" ]]; then
 	LoopWholeSiteList
 else
 	WakeOneSite
