@@ -78,43 +78,52 @@ testids="${@}"
 SiteList="${SiteListNew:-${SiteListDefault}}"
 PortNumber="${PortNumberNew:-${PortNumberDefault}}"
 
+if [ ! -s ${SiteList} ]; then echo "no csv file"; exit 1 ; fi
+
 # Check dependicy
 if [[ $(which socat) ]]; then BroadcastTool="Socat"
-elif  [[ $(which nc) ]]; then BroadcastTool="NC"
-elif  [[ $(which netcat) ]]; then BroadcastTool="Netcat"
+elif [[ $(which nc) ]]; then BroadcastTool="NC"
+elif [[ $(which netcat) ]]; then BroadcastTool="Netcat"
 else
 	echo install socat, nc, or netcat from your prefered supplier of zeros and ones
 	exit 1
 fi
 
 CheckandWOL() {
-	if [[ {BroadcastTool} -eq "Socat" ]]; then
+
+	Hostname=$(echo ${HostnamePre} | tr -d '[:space:]')
+	MAC=$(echo ${MACPre} | tr -d '[:space:]')
+	Broadcast=$(echo ${BroadcastPre} | tr -d '[:space:]')
+	
+	if [[ ${BroadcastTool} -eq "Socat" ]]; then
 		echo -e $(echo $(printf 'f%.0s' {1..12}; printf "$(echo $MAC | sed 's/://g')%.0s" {1..16}) | sed -e 's/../\\x&/g') | socat - UDP-DATAGRAM:${Broadcast}:${PortNumber},broadcast
-	elif  [[{BroadcastTool} -eq "NC" ]]; then
+	elif [[ ${BroadcastTool} -eq "NC" ]]; then
 		echo -e $(echo $(printf 'f%.0s' {1..12}; printf "$(echo $MAC | sed 's/://g')%.0s" {1..16}) | sed -e 's/../\\x&/g') | nc
-	elif  [[{BroadcastTool} -eq "Netcat" ]]; then
+	elif [[ ${BroadcastTool} -eq "Netcat" ]]; then
 		echo -e $(echo $(printf 'f%.0s' {1..12}; printf "$(echo $MAC | sed 's/://g')%.0s" {1..16}) | sed -e 's/../\\x&/g') | netcat
 	else
+		echo "how did you get here?"
+	fi
 }
 
 LoopWholeSiteList() {
-	while IFS=, read Hostname Broadcast MAC
+	while IFS=, read HostnamePre BroadcastPre MACPre
 	do 
-		echo "Do something with ${Hostname} ${Broadcast} and ${MAC}"
-		printf "\n${Hostname}"
-		ping -c 1 -W 1 ${Hostname} > /dev/null 2>&1 && { printf "   Online" ; continue ; }
+		echo "Do something with ${HostnamePre} ${BroadcastPre} and ${MACPre}"
+		printf "\n${HostnamePre}"
+		ping -c 1 -W 1 ${HostnamePre} > /dev/null 2>&1 && { printf "   Online" ; continue ; }
 		CheckandWOL
 	done < ${SiteList}
 }
 
 WakeOneSite() {	
 	IFS=,
-	read Hostname Broadcast MAC <<<"$(grep "${Site}" "${SiteList}" 2>/dev/null)"
+	read HostnamePre BroadcastPre MACPre <<<"$(grep "${Site}" "${SiteList}" 2>/dev/null)"
 	CheckandWOL
 }
 
 
-if [[ -n "${Site}" ]]; then
+if [[ -z "${Site}" ]]; then
 	LoopWholeSiteList
 else
 	WakeOneSite
@@ -136,5 +145,56 @@ if [[ $EUID -ne 0 ]]; then echo -e "This script must be run as root\n"; exit 1; 
 
 
 # Enable WOL
+## Get WOL info for all (real) ethernet devices 
+for NET in $(/sbin/ifconfig -a | sed 's/[ \t].*//;/^\(lo\|\)$/d');do ethtool $NET | grep 'Settings\|Wake'; done
+
+
+####################################
 
 # Create list of required IP addresses and MAC from hostnames
+
+## Two part method
+### Part 1
+thedestination=/your/prefered/destination
+
+for TestCell in <your list of urls>;do
+	ssh ${TestCell} "/sbin/ifconfig" > "$thedestination"/${TestCell}.ifconfig.txt
+done
+
+### Part 2
+for TestCell in <your list of urls>;do
+	FileName="${TestCell}.ifconfig.txt"
+	if [ ! -s ${FileName} ]; then continue ; fi
+
+	for NET in $(cat ${FileName} | sed 's/[ \t].*//;/^\(lo\|\)$/d');do 
+		theMAC=$(grep "${NET} " ${FileName} | sed -n -e 's/^.*HWaddr //p')
+		theIP=$(sed -n "/${NET} /{n;p}" ${FileName} | grep -o -P '(?<=addr:).*(?=Bcast)')
+
+		#This filters down to only ip addresses starting with 19, it's a Ford thing you might not need this
+		if [ $(echo ${theIP} | grep -c "^19\.") -eq 1 ]; then
+			printf "\n${TestCell}, ${theIP}, ${theMAC}"
+		fi
+	done
+done > YourSiteList.csv
+
+#OR one hit method
+
+for TestCell in <your list of urls>;do
+
+	ping -c 1 -w 1 ${TestCell} > /dev/null 2>&1 ||  { echo offline; continue; }
+	theIfconfig=$(ssh ${TestCell} "/sbin/ifconfig")
+	
+	if [ -z ${theIfconfig} ]; then continue ; fi
+
+	for NET in $(echo ${theIfconfig} | sed 's/[ \t].*//;/^\(lo\|\)$/d');do 
+		theMAC=$(echo ${theIfconfig} | grep "${NET} " | sed -n -e 's/^.*HWaddr //p')
+		theIP=$(echo ${theIfconfig} | sed -n "/${NET} /{n;p}" | grep -o -P '(?<=addr:).*(?=Bcast)')
+
+		#This filters down to only ip addresses starting with 19, it's a Ford thing you might not need this
+		if [ $(echo ${theIP} | grep -c "^19\.") -eq 1 ]; then
+			printf "\n${TestCell}, ${theIP}, ${theMAC}"
+		fi
+	done
+done > YourSiteList.csv
+
+
